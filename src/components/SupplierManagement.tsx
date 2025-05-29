@@ -168,7 +168,7 @@ export const SupplierManagement = () => {
   const toggleSupplierStatus = (id: number) => {
     const updatedSuppliers = suppliers.map(supplier =>
       supplier.id === id
-        ? { ...supplier, status: supplier.status === 'active' ? 'inactive' : 'active' }
+        ? { ...supplier, status: (supplier.status === 'active' ? 'inactive' : 'active') as 'active' | 'inactive' }
         : supplier
     );
     setSuppliers(updatedSuppliers);
