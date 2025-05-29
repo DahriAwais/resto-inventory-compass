@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +19,7 @@ import {
 } from 'recharts';
 import { Download, FileText, TrendingUp, Calendar, Package } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
+import { exportToPDF, exportToExcel } from '@/utils/reportExporter';
 
 export const Reports = () => {
   const { toast } = useToast();
@@ -60,18 +60,43 @@ export const Reports = () => {
   ];
 
   const handleExportReport = (format: 'pdf' | 'excel') => {
-    toast({
-      title: "Export Started",
-      description: `Generating ${format.toUpperCase()} report. Download will start shortly.`,
-    });
+    let dataToExport;
     
-    // Simulate export delay
-    setTimeout(() => {
+    switch (reportType) {
+      case 'inventory':
+        dataToExport = inventoryData;
+        break;
+      case 'usage':
+        dataToExport = usageData;
+        break;
+      case 'purchases':
+        dataToExport = purchaseData;
+        break;
+      case 'suppliers':
+        dataToExport = purchaseData;
+        break;
+      default:
+        dataToExport = inventoryData;
+    }
+
+    try {
+      if (format === 'pdf') {
+        exportToPDF(dataToExport, reportType);
+      } else {
+        exportToExcel(dataToExport, reportType);
+      }
+      
       toast({
-        title: "Export Complete",
+        title: "Export Successful",
         description: `${format.toUpperCase()} report has been downloaded successfully.`,
       });
-    }, 2000);
+    } catch (error) {
+      toast({
+        title: "Export Failed",
+        description: `Failed to export ${format.toUpperCase()} report. Please try again.`,
+        variant: "destructive",
+      });
+    }
   };
 
   const getReportTitle = () => {

@@ -1,7 +1,8 @@
 
 import React from 'react';
-import { Button } from '@/components/ui/button';
-import { LogOut, User } from 'lucide-react';
+import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
+import { AppSidebar } from '@/components/AppSidebar';
+import { User } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface LayoutProps {
@@ -9,44 +10,42 @@ interface LayoutProps {
 }
 
 const Layout = ({ children }: LayoutProps) => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center">
-              <h1 className="text-xl font-semibold text-gray-900">
-                Restaurant Inventory Management
-              </h1>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center text-sm text-gray-700">
-                <User className="h-4 w-4 mr-2" />
-                Welcome, {user?.username} ({user?.role})
+    <SidebarProvider>
+      <div className="min-h-screen flex w-full">
+        <AppSidebar />
+        <SidebarInset className="flex flex-col">
+          {/* Header */}
+          <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-white px-4">
+            <SidebarTrigger className="-ml-1" />
+            <div className="mx-auto flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-gradient-to-r from-orange-500 to-red-500 rounded-lg flex items-center justify-center">
+                  <span className="text-white font-bold text-xl">🍽️</span>
+                </div>
+                <div className="flex flex-col">
+                  <h1 className="text-xl font-bold text-gray-900">
+                    Restaurant Inventory Management
+                  </h1>
+                  <p className="text-sm text-gray-600">Professional Management System</p>
+                </div>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={logout}
-                className="flex items-center"
-              >
-                <LogOut className="h-4 w-4 mr-2" />
-                Logout
-              </Button>
             </div>
-          </div>
-        </div>
-      </header>
+            <div className="flex items-center text-sm text-gray-700">
+              <User className="h-4 w-4 mr-2" />
+              {user?.username} ({user?.role})
+            </div>
+          </header>
 
-      {/* Main Content */}
-      <main>
-        {children}
-      </main>
-    </div>
+          {/* Main Content */}
+          <main className="flex-1 overflow-auto p-6 bg-gray-50">
+            {children}
+          </main>
+        </SidebarInset>
+      </div>
+    </SidebarProvider>
   );
 };
 
