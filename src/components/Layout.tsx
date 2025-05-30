@@ -2,7 +2,8 @@
 import React from 'react';
 import { SidebarProvider, SidebarTrigger, SidebarInset } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/AppSidebar';
-import { User } from 'lucide-react';
+import { User, LogOut } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 
 interface LayoutProps {
@@ -10,7 +11,11 @@ interface LayoutProps {
 }
 
 const Layout = ({ children }: LayoutProps) => {
-  const { user } = useAuth();
+  const { user, userProfile, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    await signOut();
+  };
 
   return (
     <SidebarProvider>
@@ -33,9 +38,19 @@ const Layout = ({ children }: LayoutProps) => {
                 </div>
               </div>
             </div>
-            <div className="flex items-center text-sm text-gray-700">
-              <User className="h-4 w-4 mr-2" />
-              {user?.username} ({user?.role})
+            <div className="flex items-center gap-4">
+              <div className="flex items-center text-sm text-gray-700">
+                <User className="h-4 w-4 mr-2" />
+                {userProfile?.username || user?.email} ({userProfile?.role || 'user'})
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleSignOut}
+                className="text-gray-600 hover:text-gray-900"
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
             </div>
           </header>
 

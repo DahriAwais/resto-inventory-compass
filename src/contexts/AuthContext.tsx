@@ -1,11 +1,16 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import type { User, Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
   isAuthenticated: boolean;
-  user: { username: string; role: string } | null;
-  login: (username: string, password: string) => boolean;
-  logout: () => void;
+  user: User | null;
+  userProfile: { username: string; role: string; full_name?: string } | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, userData: { username: string; full_name: string }) => Promise<{ error?: string }>;
+  signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -23,44 +28,122 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [user, setUser] = useState<{ username: string; role: string } | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [session, setSession] = useState<Session | null>(null);
+  const [userProfile, setUserProfile] = useState<{ username: string; role: string; full_name?: string } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('username, role, full_name')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.error('Error fetching user profile:', error);
+        return;
+      }
+
+      setUserProfile(data);
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    }
+  };
 
   useEffect(() => {
-    // Check if user is already logged in (from localStorage)
-    const savedUser = localStorage.getItem('restaurant_user');
-    if (savedUser) {
-      const userData = JSON.parse(savedUser);
-      setUser(userData);
-      setIsAuthenticated(true);
-    }
+    // Set up auth state listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
+        console.log('Auth state changed:', event, session);
+        setSession(session);
+        setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          // Fetch user profile when user is authenticated
+          setTimeout(() => {
+            fetchUserProfile(session.user.id);
+          }, 0);
+        } else {
+          setUserProfile(null);
+        }
+        
+        setLoading(false);
+      }
+    );
+
+    // Check for existing session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setUser(session?.user ?? null);
+      
+      if (session?.user) {
+        fetchUserProfile(session.user.id);
+      }
+      
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const login = (username: string, password: string): boolean => {
-    // Simple demo authentication
-    if ((username === 'admin' && password === 'password') || 
-        (username === 'manager' && password === 'manager123')) {
-      const userData = {
-        username,
-        role: username === 'admin' ? 'admin' : 'manager'
-      };
-      setUser(userData);
-      setIsAuthenticated(true);
-      localStorage.setItem('restaurant_user', JSON.stringify(userData));
-      return true;
+  const signIn = async (email: string, password: string) => {
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        return { error: error.message };
+      }
+
+      return {};
+    } catch (error) {
+      return { error: 'An unexpected error occurred' };
     }
-    return false;
   };
 
-  const logout = () => {
-    setUser(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('restaurant_user');
+  const signUp = async (email: string, password: string, userData: { username: string; full_name: string }) => {
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: {
+            username: userData.username,
+            full_name: userData.full_name,
+          },
+        },
+      });
+
+      if (error) {
+        return { error: error.message };
+      }
+
+      return {};
+    } catch (error) {
+      return { error: 'An unexpected error occurred' };
+    }
   };
 
-  return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  const value = {
+    isAuthenticated: !!session,
+    user,
+    userProfile,
+    loading,
+    signIn,
+    signUp,
+    signOut,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
