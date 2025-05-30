@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { 
@@ -24,37 +24,190 @@ import {
   Users, 
   Plus
 } from 'lucide-react';
+import { supabase } from '@/integrations/supabase/client';
+import { useToast } from '@/hooks/use-toast';
+
+interface DashboardStats {
+  totalItems: number;
+  lowStockItems: number;
+  totalSuppliers: number;
+  monthlyUsage: number;
+}
+
+interface LowStockItem {
+  name: string;
+  current: number;
+  minimum: number;
+  unit: string;
+}
+
+interface StockMovement {
+  type: string;
+  item: string;
+  quantity: number;
+  time: string;
+}
 
 const RestaurantInventoryDashboard = () => {
-  // Sample data for charts
-  const stockData = [
-    { name: 'Vegetables', value: 45, color: '#22C55E' },
-    { name: 'Meat', value: 25, color: '#EF4444' },
-    { name: 'Dairy', value: 20, color: '#F59E0B' },
-    { name: 'Grains', value: 10, color: '#3B82F6' }
-  ];
+  const { toast } = useToast();
+  const [stats, setStats] = useState<DashboardStats>({
+    totalItems: 0,
+    lowStockItems: 0,
+    totalSuppliers: 0,
+    monthlyUsage: 0
+  });
+  const [lowStockItems, setLowStockItems] = useState<LowStockItem[]>([]);
+  const [recentTransactions, setRecentTransactions] = useState<StockMovement[]>([]);
+  const [stockData, setStockData] = useState<any[]>([]);
+  const [usageData, setUsageData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const usageData = [
-    { name: 'Mon', usage: 120 },
-    { name: 'Tue', usage: 150 },
-    { name: 'Wed', usage: 180 },
-    { name: 'Thu', usage: 165 },
-    { name: 'Fri', usage: 200 },
-    { name: 'Sat', usage: 250 },
-    { name: 'Sun', usage: 180 }
-  ];
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
 
-  const lowStockItems = [
-    { name: 'Tomatoes', current: 5, minimum: 10, unit: 'kg' },
-    { name: 'Chicken Breast', current: 3, minimum: 8, unit: 'kg' },
-    { name: 'Milk', current: 2, minimum: 5, unit: 'L' }
-  ];
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
 
-  const recentTransactions = [
-    { type: 'Stock In', item: 'Onions', quantity: 50, time: '2 hours ago' },
-    { type: 'Stock Out', item: 'Rice', quantity: 15, time: '4 hours ago' },
-    { type: 'Stock In', item: 'Beef', quantity: 20, time: '6 hours ago' }
-  ];
+      // Fetch total items count
+      const { count: totalItems } = await supabase
+        .from('inventory_items')
+        .select('*', { count: 'exact', head: true });
+
+      // Fetch low stock items
+      const { data: lowStockData } = await supabase
+        .from('inventory_items')
+        .select('name, current_stock, minimum_stock, unit')
+        .filter('current_stock', 'lte', 'minimum_stock');
+
+      // Fetch suppliers count
+      const { count: totalSuppliers } = await supabase
+        .from('suppliers')
+        .select('*', { count: 'exact', head: true });
+
+      // Fetch recent stock movements
+      const { data: movements } = await supabase
+        .from('stock_movements')
+        .select(`
+          movement_type,
+          quantity,
+          created_at,
+          inventory_items(name)
+        `)
+        .order('created_at', { ascending: false })
+        .limit(5);
+
+      // Fetch category distribution for pie chart
+      const { data: categoryData } = await supabase
+        .from('inventory_items')
+        .select(`
+          categories(name),
+          current_stock
+        `);
+
+      // Calculate monthly usage (stock out movements from last 30 days)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const { data: monthlyMovements } = await supabase
+        .from('stock_movements')
+        .select('quantity')
+        .eq('movement_type', 'out')
+        .gte('created_at', thirtyDaysAgo.toISOString());
+
+      const monthlyUsage = monthlyMovements?.reduce((sum, movement) => sum + Number(movement.quantity), 0) || 0;
+
+      // Process data for charts
+      const categoryDistribution = processCategoryData(categoryData || []);
+      const weeklyUsage = processWeeklyUsage();
+      const lowStock = processLowStockItems(lowStockData || []);
+      const recentActivity = processRecentMovements(movements || []);
+
+      setStats({
+        totalItems: totalItems || 0,
+        lowStockItems: lowStock.length,
+        totalSuppliers: totalSuppliers || 0,
+        monthlyUsage
+      });
+
+      setLowStockItems(lowStock);
+      setRecentTransactions(recentActivity);
+      setStockData(categoryDistribution);
+      setUsageData(weeklyUsage);
+
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load dashboard data",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const processCategoryData = (data: any[]) => {
+    const categoryMap = new Map();
+    
+    data.forEach(item => {
+      const categoryName = item.categories?.name || 'Uncategorized';
+      const currentStock = Number(item.current_stock) || 0;
+      
+      if (categoryMap.has(categoryName)) {
+        categoryMap.set(categoryName, categoryMap.get(categoryName) + currentStock);
+      } else {
+        categoryMap.set(categoryName, currentStock);
+      }
+    });
+
+    const colors = ['#22C55E', '#EF4444', '#F59E0B', '#3B82F6', '#8B5CF6', '#EC4899'];
+    
+    return Array.from(categoryMap.entries()).map(([name, value], index) => ({
+      name,
+      value,
+      color: colors[index % colors.length]
+    }));
+  };
+
+  const processWeeklyUsage = () => {
+    // Generate mock weekly data - in a real app, you'd calculate this from actual movements
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days.map(day => ({
+      name: day,
+      usage: Math.floor(Math.random() * 100) + 50 // Mock data for now
+    }));
+  };
+
+  const processLowStockItems = (data: any[]): LowStockItem[] => {
+    return data.map(item => ({
+      name: item.name,
+      current: Number(item.current_stock),
+      minimum: Number(item.minimum_stock),
+      unit: item.unit
+    }));
+  };
+
+  const processRecentMovements = (data: any[]): StockMovement[] => {
+    return data.map(movement => ({
+      type: movement.movement_type === 'in' ? 'Stock In' : 'Stock Out',
+      item: movement.inventory_items?.name || 'Unknown Item',
+      quantity: Number(movement.quantity),
+      time: new Date(movement.created_at).toLocaleString()
+    }));
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-green-50">
@@ -73,8 +226,8 @@ const RestaurantInventoryDashboard = () => {
                 <Package className="h-5 w-5" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">342</div>
-                <p className="text-xs text-blue-100">+12% from last month</p>
+                <div className="text-2xl font-bold">{stats.totalItems}</div>
+                <p className="text-xs text-blue-100">Items in inventory</p>
               </CardContent>
             </Card>
 
@@ -84,7 +237,7 @@ const RestaurantInventoryDashboard = () => {
                 <AlertTriangle className="h-5 w-5" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{lowStockItems.length}</div>
+                <div className="text-2xl font-bold">{stats.lowStockItems}</div>
                 <p className="text-xs text-red-100">Needs immediate attention</p>
               </CardContent>
             </Card>
@@ -95,7 +248,7 @@ const RestaurantInventoryDashboard = () => {
                 <Users className="h-5 w-5" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">24</div>
+                <div className="text-2xl font-bold">{stats.totalSuppliers}</div>
                 <p className="text-xs text-green-100">Active partnerships</p>
               </CardContent>
             </Card>
@@ -106,7 +259,7 @@ const RestaurantInventoryDashboard = () => {
                 <TrendingUp className="h-5 w-5" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">1,245</div>
+                <div className="text-2xl font-bold">{stats.monthlyUsage}</div>
                 <p className="text-xs text-purple-100">Units consumed</p>
               </CardContent>
             </Card>
@@ -120,24 +273,30 @@ const RestaurantInventoryDashboard = () => {
                 <CardDescription>Current inventory breakdown</CardDescription>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={stockData}
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                    >
-                      {stockData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
+                {stockData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={stockData}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        fill="#8884d8"
+                        dataKey="value"
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      >
+                        {stockData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-gray-500">
+                    No data available
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -172,17 +331,23 @@ const RestaurantInventoryDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {lowStockItems.map((item, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
-                      <div>
-                        <p className="font-medium text-red-800">{item.name}</p>
-                        <p className="text-sm text-red-600">
-                          {item.current} {item.unit} left (Min: {item.minimum} {item.unit})
-                        </p>
+                  {lowStockItems.length > 0 ? (
+                    lowStockItems.map((item, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
+                        <div>
+                          <p className="font-medium text-red-800">{item.name}</p>
+                          <p className="text-sm text-red-600">
+                            {item.current} {item.unit} left (Min: {item.minimum} {item.unit})
+                          </p>
+                        </div>
+                        <Badge variant="destructive">Critical</Badge>
                       </div>
-                      <Badge variant="destructive">Critical</Badge>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      No low stock alerts
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -194,26 +359,32 @@ const RestaurantInventoryDashboard = () => {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {recentTransactions.map((transaction, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center gap-3">
-                        {transaction.type === 'Stock In' ? (
-                          <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
-                            <Plus className="w-4 h-4 text-green-600" />
+                  {recentTransactions.length > 0 ? (
+                    recentTransactions.map((transaction, index) => (
+                      <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                        <div className="flex items-center gap-3">
+                          {transaction.type === 'Stock In' ? (
+                            <div className="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center">
+                              <Plus className="w-4 h-4 text-green-600" />
+                            </div>
+                          ) : (
+                            <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
+                              <Package className="w-4 h-4 text-red-600" />
+                            </div>
+                          )}
+                          <div>
+                            <p className="font-medium">{transaction.item}</p>
+                            <p className="text-sm text-gray-600">{transaction.type} - {transaction.quantity} units</p>
                           </div>
-                        ) : (
-                          <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
-                            <Package className="w-4 h-4 text-red-600" />
-                          </div>
-                        )}
-                        <div>
-                          <p className="font-medium">{transaction.item}</p>
-                          <p className="text-sm text-gray-600">{transaction.type} - {transaction.quantity} units</p>
                         </div>
+                        <span className="text-xs text-gray-500">{transaction.time}</span>
                       </div>
-                      <span className="text-xs text-gray-500">{transaction.time}</span>
+                    ))
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      No recent activity
                     </div>
-                  ))}
+                  )}
                 </div>
               </CardContent>
             </Card>

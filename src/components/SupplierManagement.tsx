@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,73 +10,61 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Plus, Edit, Trash2, Phone, Mail, MapPin, Users, DollarSign } from 'lucide-react';
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from '@/integrations/supabase/client';
 
 interface Supplier {
-  id: number;
+  id: string;
   name: string;
-  contactPerson: string;
-  phone: string;
-  email: string;
-  address: string;
-  totalOrders: number;
-  totalValue: number;
-  lastOrderDate: string;
-  status: 'active' | 'inactive';
+  contact_person: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  created_at: string;
 }
 
 export const SupplierManagement = () => {
   const { toast } = useToast();
-  const [suppliers, setSuppliers] = useState<Supplier[]>([
-    {
-      id: 1,
-      name: "Fresh Farm Co.",
-      contactPerson: "John Smith",
-      phone: "+1 (555) 123-4567",
-      email: "john@freshfarm.com",
-      address: "123 Farm Road, Green Valley, CA 90210",
-      totalOrders: 45,
-      totalValue: 15750.00,
-      lastOrderDate: "2024-01-15",
-      status: 'active'
-    },
-    {
-      id: 2,
-      name: "Prime Meats Ltd",
-      contactPerson: "Sarah Johnson",
-      phone: "+1 (555) 987-6543",
-      email: "sarah@primemeats.com",
-      address: "456 Butcher Street, Meat District, NY 10001",
-      totalOrders: 32,
-      totalValue: 28950.00,
-      lastOrderDate: "2024-01-14",
-      status: 'active'
-    },
-    {
-      id: 3,
-      name: "Dairy Fresh",
-      contactPerson: "Mike Wilson",
-      phone: "+1 (555) 456-7890",
-      email: "mike@dairyfresh.com",
-      address: "789 Dairy Lane, Milk Valley, WI 53001",
-      totalOrders: 28,
-      totalValue: 8500.00,
-      lastOrderDate: "2024-01-12",
-      status: 'active'
-    }
-  ]);
-
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [loading, setLoading] = useState(true);
+
   const [formData, setFormData] = useState({
     name: '',
-    contactPerson: '',
+    contact_person: '',
     phone: '',
     email: '',
     address: ''
   });
 
-  const handleAddSupplier = () => {
-    if (!formData.name || !formData.contactPerson || !formData.phone) {
+  useEffect(() => {
+    fetchSuppliers();
+  }, []);
+
+  const fetchSuppliers = async () => {
+    try {
+      setLoading(true);
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+      setSuppliers(data || []);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load suppliers",
+        variant: "destructive"
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddSupplier = async () => {
+    if (!formData.name || !formData.contact_person || !formData.phone) {
       toast({
         title: "Error",
         description: "Please fill in all required fields",
@@ -85,99 +73,129 @@ export const SupplierManagement = () => {
       return;
     }
 
-    const newSupplier: Supplier = {
-      id: suppliers.length + 1,
-      name: formData.name,
-      contactPerson: formData.contactPerson,
-      phone: formData.phone,
-      email: formData.email,
-      address: formData.address,
-      totalOrders: 0,
-      totalValue: 0,
-      lastOrderDate: "Never",
-      status: 'active'
-    };
+    try {
+      const { error } = await supabase
+        .from('suppliers')
+        .insert({
+          name: formData.name,
+          contact_person: formData.contact_person,
+          phone: formData.phone,
+          email: formData.email || null,
+          address: formData.address || null
+        });
 
-    setSuppliers([...suppliers, newSupplier]);
-    setFormData({
-      name: '',
-      contactPerson: '',
-      phone: '',
-      email: '',
-      address: ''
-    });
-    setIsAddDialogOpen(false);
-    
-    toast({
-      title: "Success",
-      description: "Supplier added successfully"
-    });
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Supplier added successfully"
+      });
+
+      setFormData({
+        name: '',
+        contact_person: '',
+        phone: '',
+        email: '',
+        address: ''
+      });
+      setIsAddDialogOpen(false);
+      fetchSuppliers();
+    } catch (error) {
+      console.error('Error adding supplier:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add supplier",
+        variant: "destructive"
+      });
+    }
   };
 
   const handleEditSupplier = (supplier: Supplier) => {
     setEditingSupplier(supplier);
     setFormData({
       name: supplier.name,
-      contactPerson: supplier.contactPerson,
-      phone: supplier.phone,
-      email: supplier.email,
-      address: supplier.address
+      contact_person: supplier.contact_person || '',
+      phone: supplier.phone || '',
+      email: supplier.email || '',
+      address: supplier.address || ''
     });
   };
 
-  const handleUpdateSupplier = () => {
+  const handleUpdateSupplier = async () => {
     if (!editingSupplier) return;
 
-    const updatedSuppliers = suppliers.map(supplier =>
-      supplier.id === editingSupplier.id
-        ? {
-            ...supplier,
-            name: formData.name,
-            contactPerson: formData.contactPerson,
-            phone: formData.phone,
-            email: formData.email,
-            address: formData.address
-          }
-        : supplier
+    try {
+      const { error } = await supabase
+        .from('suppliers')
+        .update({
+          name: formData.name,
+          contact_person: formData.contact_person,
+          phone: formData.phone,
+          email: formData.email || null,
+          address: formData.address || null
+        })
+        .eq('id', editingSupplier.id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Supplier updated successfully"
+      });
+
+      setEditingSupplier(null);
+      setFormData({
+        name: '',
+        contact_person: '',
+        phone: '',
+        email: '',
+        address: ''
+      });
+      fetchSuppliers();
+    } catch (error) {
+      console.error('Error updating supplier:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update supplier",
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteSupplier = async (id: string) => {
+    try {
+      const { error } = await supabase
+        .from('suppliers')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+
+      toast({
+        title: "Success",
+        description: "Supplier deleted successfully"
+      });
+      fetchSuppliers();
+    } catch (error) {
+      console.error('Error deleting supplier:', error);
+      toast({
+        title: "Error",
+        description: "Failed to delete supplier",
+        variant: "destructive"
+      });
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading suppliers...</p>
+        </div>
+      </div>
     );
-
-    setSuppliers(updatedSuppliers);
-    setEditingSupplier(null);
-    setFormData({
-      name: '',
-      contactPerson: '',
-      phone: '',
-      email: '',
-      address: ''
-    });
-
-    toast({
-      title: "Success",
-      description: "Supplier updated successfully"
-    });
-  };
-
-  const handleDeleteSupplier = (id: number) => {
-    setSuppliers(suppliers.filter(supplier => supplier.id !== id));
-    toast({
-      title: "Success",
-      description: "Supplier deleted successfully"
-    });
-  };
-
-  const toggleSupplierStatus = (id: number) => {
-    const updatedSuppliers = suppliers.map(supplier =>
-      supplier.id === id
-        ? { ...supplier, status: (supplier.status === 'active' ? 'inactive' : 'active') as 'active' | 'inactive' }
-        : supplier
-    );
-    setSuppliers(updatedSuppliers);
-    
-    toast({
-      title: "Success",
-      description: "Supplier status updated"
-    });
-  };
+  }
 
   return (
     <div className="space-y-6">
@@ -216,11 +234,11 @@ export const SupplierManagement = () => {
                     />
                   </div>
                   <div className="grid gap-2">
-                    <Label htmlFor="contactPerson">Contact Person*</Label>
+                    <Label htmlFor="contact_person">Contact Person*</Label>
                     <Input
-                      id="contactPerson"
-                      value={formData.contactPerson}
-                      onChange={(e) => setFormData({...formData, contactPerson: e.target.value})}
+                      id="contact_person"
+                      value={formData.contact_person}
+                      onChange={(e) => setFormData({...formData, contact_person: e.target.value})}
                       placeholder="e.g., John Smith"
                     />
                   </div>
@@ -280,9 +298,7 @@ export const SupplierManagement = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-green-100 text-sm">Active Suppliers</p>
-                    <p className="text-2xl font-bold">
-                      {suppliers.filter(s => s.status === 'active').length}
-                    </p>
+                    <p className="text-2xl font-bold">{suppliers.length}</p>
                   </div>
                   <Users className="w-8 h-8 text-green-200" />
                 </div>
@@ -292,9 +308,13 @@ export const SupplierManagement = () => {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-purple-100 text-sm">Total Value</p>
+                    <p className="text-purple-100 text-sm">New This Month</p>
                     <p className="text-2xl font-bold">
-                      ${suppliers.reduce((sum, s) => sum + s.totalValue, 0).toLocaleString()}
+                      {suppliers.filter(s => {
+                        const created = new Date(s.created_at);
+                        const now = new Date();
+                        return created.getMonth() === now.getMonth() && created.getFullYear() === now.getFullYear();
+                      }).length}
                     </p>
                   </div>
                   <DollarSign className="w-8 h-8 text-purple-200" />
@@ -310,9 +330,8 @@ export const SupplierManagement = () => {
                 <TableRow className="bg-gray-50">
                   <TableHead>Supplier</TableHead>
                   <TableHead>Contact</TableHead>
-                  <TableHead>Orders</TableHead>
-                  <TableHead>Total Value</TableHead>
-                  <TableHead>Last Order</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Email</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -323,19 +342,15 @@ export const SupplierManagement = () => {
                     <TableCell>
                       <div>
                         <p className="font-medium">{supplier.name}</p>
-                        <p className="text-sm text-gray-500">{supplier.contactPerson}</p>
+                        <p className="text-sm text-gray-500">{supplier.contact_person}</p>
                       </div>
                     </TableCell>
                     <TableCell>
                       <div className="space-y-1">
-                        <div className="flex items-center gap-2 text-sm">
-                          <Phone className="w-3 h-3" />
-                          {supplier.phone}
-                        </div>
-                        {supplier.email && (
+                        {supplier.phone && (
                           <div className="flex items-center gap-2 text-sm">
-                            <Mail className="w-3 h-3" />
-                            {supplier.email}
+                            <Phone className="w-3 h-3" />
+                            {supplier.phone}
                           </div>
                         )}
                         {supplier.address && (
@@ -346,16 +361,17 @@ export const SupplierManagement = () => {
                         )}
                       </div>
                     </TableCell>
-                    <TableCell className="text-center">{supplier.totalOrders}</TableCell>
-                    <TableCell className="font-medium">${supplier.totalValue.toLocaleString()}</TableCell>
-                    <TableCell>{supplier.lastOrderDate}</TableCell>
+                    <TableCell>{supplier.phone || 'N/A'}</TableCell>
                     <TableCell>
-                      <Badge 
-                        variant={supplier.status === 'active' ? 'default' : 'secondary'}
-                        className={supplier.status === 'active' ? 'bg-green-500' : 'bg-gray-500'}
-                      >
-                        {supplier.status}
-                      </Badge>
+                      {supplier.email ? (
+                        <div className="flex items-center gap-2 text-sm">
+                          <Mail className="w-3 h-3" />
+                          {supplier.email}
+                        </div>
+                      ) : 'N/A'}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className="bg-green-500">Active</Badge>
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-2">
@@ -365,14 +381,6 @@ export const SupplierManagement = () => {
                           onClick={() => handleEditSupplier(supplier)}
                         >
                           <Edit className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => toggleSupplierStatus(supplier.id)}
-                          className={supplier.status === 'active' ? 'text-orange-600' : 'text-green-600'}
-                        >
-                          {supplier.status === 'active' ? 'Deactivate' : 'Activate'}
                         </Button>
                         <Button
                           variant="outline"
@@ -389,6 +397,12 @@ export const SupplierManagement = () => {
               </TableBody>
             </Table>
           </div>
+
+          {suppliers.length === 0 && (
+            <div className="text-center py-8 text-gray-500">
+              No suppliers found. Add your first supplier!
+            </div>
+          )}
         </CardContent>
       </Card>
 
